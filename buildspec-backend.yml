@@ -1,0 +1,29 @@
+version: 0.2
+phases:
+  install:
+    runtime-versions:
+      nodejs: 20
+  pre_build:
+    commands:
+      - (cd backend && npm install && npm test)
+      - ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+      - ECR_REGISTRY=$ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com
+      - aws ecr get-login-password --region $AWS_DEFAULT_REGION
+        | docker login --username AWS --password-stdin $ECR_REGISTRY
+      - IMAGE_TAG=$(echo $CODEBUILD_RESOLVED_SOURCE_VERSION | cut -c1-7)
+      - IMAGE_TAG=${IMAGE_TAG:-build-$CODEBUILD_BUILD_NUMBER}
+  build:
+    commands:
+      - docker build
+        -t $ECR_REGISTRY/cloudshop-api:$IMAGE_TAG
+        -t $ECR_REGISTRY/cloudshop-api:latest
+        ./backend
+  post_build:
+    commands:
+      - docker push $ECR_REGISTRY/cloudshop-api:$IMAGE_TAG
+      - docker push $ECR_REGISTRY/cloudshop-api:latest
+      - printf '[{"name":"api","imageUri":"%s"}]'
+        $ECR_REGISTRY/cloudshop-api:$IMAGE_TAG > imagedefinitions.json
+artifacts:
+  files:
+    - imagedefinitions.json
